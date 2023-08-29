@@ -1,0 +1,15 @@
+[package]
+name = "ardutils"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.73"
+mavlink = { version = "0.11.2", features = ["ardupilotmega"] }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_yaml = "0.9.25"
+tokio = { version = "1.32.0", features = ["sync", "rt", "time", "macros"] }
+tracing = "0.1.37"
+uom = { version = "0.35.0", features = ["use_serde"] }
