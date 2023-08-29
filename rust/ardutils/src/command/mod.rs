@@ -50,15 +50,17 @@ impl Command for mavlink::ardupilotmega::COMMAND_INT_DATA {
 
         connection.clone().monitor(timeout, move |msg| {
             if let MavMessage::COMMAND_ACK(data) = msg {
-                tx.send(Some(data.clone()));
+                tx.send(Some(data.clone())).unwrap();
                 if !matches!(data.result, MavResult::MAV_RESULT_IN_PROGRESS) {
                     return None;
                 }
             }
-            return Some(());
+            Some(())
         });
 
-        connection.send(&MavMessage::COMMAND_INT(self.clone()));
+        connection
+            .send(&MavMessage::COMMAND_INT(self.clone()))
+            .expect("Could not send message across mavlink connection -- must have closed");
 
         rx
     }
@@ -84,13 +86,17 @@ impl Command for mavlink::ardupilotmega::COMMAND_LONG_DATA {
 
         connection.clone().monitor(timeout, move |msg| {
             if let MavMessage::COMMAND_ACK(data) = msg {
-                tx.send(Some(data.clone()));
-                return None;
+                tx.send(Some(data.clone())).unwrap();
+                if !matches!(data.result, MavResult::MAV_RESULT_IN_PROGRESS) {
+                    return None;
+                }
             }
-            return Some(());
+            Some(())
         });
 
-        connection.send(&MavMessage::COMMAND_LONG(self.clone()));
+        connection
+            .send(&MavMessage::COMMAND_LONG(self.clone()))
+            .expect("Could not send message across mavlink connection -- must have closed");
 
         rx
     }

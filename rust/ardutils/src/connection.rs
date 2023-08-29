@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use mavlink::{
     ardupilotmega::MavMessage,
@@ -122,7 +122,7 @@ where
         })
     }
 
-    // This is in fact a blocking call -- since conn.recv() is blocking -- 
+    // This is in fact a blocking call -- since conn.recv() is blocking --
     // therefore, we cannot really "timeout" on receiving IFF there are NO messages coming through
     // If this function blocks forever, meaning there are no messages to return -- then there is nothing we can do...
     // BUT, since this is in a spawn_blocking, it will at least not hold up the execution of OTHER things
