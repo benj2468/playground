@@ -40,6 +40,8 @@ pub trait MavlinkConnection {
         monitor: impl Fn(MavMessage) -> Option<()> + Send + Sync + 'static,
     ) -> JoinHandle<Result<(), MavlinkConnectionError>>;
 
+    async fn _receive(self: Arc<Self>) -> Result<(MavHeader, MavMessage), MavlinkConnectionError>;
+
     fn target_system(&self) -> u8 {
         env!("MAV_TARGET_SYSTEM").parse().unwrap()
     }
@@ -73,27 +75,14 @@ where
     where
         R: Send + Sync + 'static,
     {
-        let receiver = tokio::task::spawn({
-            let conn = self.clone();
-            async move {
-                loop {
-                    match tokio::task::spawn_blocking({
-                        let conn = conn.clone();
-                        move || conn.recv()
-                    })
-                    .await
-                    {
-                        Ok(Ok((header, msg))) => {
-                            if conn.validate(header) {
-                                if let FilterRes::Ready(data) = filter(msg) {
-                                    return Ok(data);
-                                }
-                            }
-                        }
-                        Ok(Err(err)) => return Err(MavlinkConnectionError::ReadError(err)),
-                        _ => {}
-                    }
-                }
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+        let monitor = self.clone().monitor(Some(timeout), move |msg| {
+            if let FilterRes::Ready(inner) = filter(msg) {
+                tx.try_send(inner);
+                None
+            } else {
+                Some(())
             }
         });
 
@@ -101,15 +90,15 @@ where
 
         tracing::event!(tracing::Level::TRACE, "Message Sent");
 
-        tokio::time::timeout(timeout, receiver)
-            .await
-            .map_err(|_| MavlinkConnectionError::Timeout)?
-            .map_err(|e| MavlinkConnectionError::Other(e.to_string()))?
+        rx.recv().await.ok_or(MavlinkConnectionError::Timeout)
     }
 
     fn monitor(
         self: Arc<Self>,
         timeout: Option<std::time::Duration>,
+        // Currently when this returns None it implies that we are done
+        // And returning Some(()) means that we should continue monitoring
+        // I don't like this API, should at least change to maybe true/false to be more clear
         monitor: impl Fn(MavMessage) -> Option<()> + Send + Sync + 'static,
     ) -> JoinHandle<Result<(), MavlinkConnectionError>> {
         let instant = std::time::Instant::now();
@@ -121,13 +110,8 @@ where
                     }
                 }
 
-                match tokio::task::spawn_blocking({
-                    let conn = self.clone();
-                    move || conn.recv()
-                })
-                .await
-                {
-                    Ok(Ok((header, msg))) => {
+                match self.clone()._receive().await {
+                    Ok((header, msg)) => {
                         if self.validate(header) && monitor(msg).is_none() {
                             return Ok(());
                         }
@@ -137,11 +121,30 @@ where
             }
         })
     }
+
+    // This is in fact a blocking call -- since conn.recv() is blocking -- 
+    // therefore, we cannot really "timeout" on receiving IFF there are NO messages coming through
+    // If this function blocks forever, meaning there are no messages to return -- then there is nothing we can do...
+    // BUT, since this is in a spawn_blocking, it will at least not hold up the execution of OTHER things
+    //  (except things in it's consequent execution tree.
+    async fn _receive(self: Arc<Self>) -> Result<(MavHeader, MavMessage), MavlinkConnectionError> {
+        return tokio::task::spawn_blocking({
+            let conn = self.clone();
+            move || conn.recv()
+        })
+        .await
+        .unwrap()
+        .map_err(MavlinkConnectionError::ReadError);
+    }
 }
 
-#[cfg(test)]
-mod test {
-    use std::sync::Arc;
+#[cfg(any(test, feature = "tester"))]
+pub mod test {
+
+    use std::{
+        fmt::Debug,
+        sync::{Arc, Mutex},
+    };
 
     use super::{FilterRes, MavlinkConnection, MavlinkConnectionError};
     use mavlink::{
@@ -150,14 +153,22 @@ mod test {
     };
 
     pub struct TestMavConnection {
-        rx: tokio::sync::watch::Receiver<Option<MavMessage>>,
-        tx: tokio::sync::watch::Sender<Option<MavMessage>>,
+        last_value: Arc<Mutex<Option<MavMessage>>>,
+        value: Arc<Mutex<Option<MavMessage>>>,
+    }
+
+    impl Debug for TestMavConnection {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "TestMavConnection [{:?}]", self.value.lock().unwrap())
+        }
     }
 
     impl TestMavConnection {
-        fn new() -> Self {
-            let (tx, rx) = tokio::sync::watch::channel(None);
-            Self { tx, rx }
+        pub fn new() -> Self {
+            Self {
+                value: Default::default(),
+                last_value: Default::default(),
+            }
         }
     }
 
@@ -171,7 +182,7 @@ mod test {
             _header: &mavlink::MavHeader,
             data: &MavMessage,
         ) -> Result<usize, mavlink::error::MessageWriteError> {
-            self.tx.send(Some(data.clone())).unwrap();
+            self.value.lock().unwrap().replace(data.clone());
             // TODO(bjc) this is not representative
             Ok(1)
         }
@@ -180,10 +191,15 @@ mod test {
             &self,
         ) -> Result<(mavlink::MavHeader, MavMessage), mavlink::error::MessageReadError> {
             loop {
-                if let Some(inner) = self.rx.borrow().clone() {
-                    return Ok((Default::default(), inner));
+                if let Some(value) = self.value.lock().unwrap().as_mut() {
+                    let mut last_value = self.last_value.lock().unwrap();
+
+                    if last_value.as_ref().map(|i| i != value).unwrap_or(true) {
+                        last_value.replace(value.clone());
+                        return Ok((Default::default(), value.clone()));
+                    }
                 }
-                std::thread::sleep(std::time::Duration::from_secs_f64(0.001));
+                std::thread::sleep(std::time::Duration::from_secs_f64(0.01));
             }
         }
     }
@@ -205,6 +221,8 @@ mod test {
     #[tokio::test]
     async fn timeout() {
         let connection = Arc::new(Box::new(TestMavConnection::new()));
+
+        start_heartbeats(connection.clone());
 
         let res = connection
             .send_wait::<()>(
@@ -278,7 +296,10 @@ mod test {
         start_heartbeats(connection.clone());
 
         let res = connection
-            .monitor(Some(std::time::Duration::from_secs_f64(0.001)), |_| Some(()))
+            .monitor(
+                Some(std::time::Duration::from_secs_f64(0.001)),
+                |_| Some(()),
+            )
             .await
             .unwrap();
 
