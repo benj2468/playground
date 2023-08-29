@@ -53,7 +53,7 @@ impl MissionUpload for Vec<MISSION_ITEM_INT_DATA> {
 
         let mut req = connection
             .clone()
-            .send_wait(count_request, options.mission_count_timeout, |msg| {
+            .send_wait(&count_request, options.mission_count_timeout, |msg| {
                 if let MavMessage::MISSION_REQUEST_INT(req) = msg {
                     if req.seq == 0 {
                         FilterRes::Ready(Some(req.seq))
@@ -72,7 +72,7 @@ impl MissionUpload for Vec<MISSION_ITEM_INT_DATA> {
             req = connection
                 .clone()
                 .send_wait(
-                    MavMessage::MISSION_ITEM_INT(item),
+                    &MavMessage::MISSION_ITEM_INT(item),
                     options.mission_item_timeout,
                     move |msg| match msg {
                         MavMessage::MISSION_REQUEST_INT(req) => FilterRes::Ready(Some(req.seq)),

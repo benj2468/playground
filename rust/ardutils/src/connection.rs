@@ -5,11 +5,11 @@ use mavlink::{
     error::{MessageReadError, MessageWriteError},
     MavConnection, MavHeader,
 };
-use tokio::time::error::Elapsed;
+use tokio::task::JoinHandle;
 
 #[derive(Debug)]
 pub enum MavlinkConnectionError {
-    Timeout(Elapsed),
+    Timeout,
     ReadError(MessageReadError),
     WriteError(MessageWriteError),
     Other(String),
@@ -25,12 +25,20 @@ pub trait MavlinkConnection {
     fn send(&self, msg: &MavMessage) -> Result<usize, MavlinkConnectionError>;
     async fn send_wait<R>(
         self: Arc<Self>,
-        msg: MavMessage,
+        msg: &MavMessage,
         timeout: std::time::Duration,
         filter: impl Fn(MavMessage) -> FilterRes<R> + Send + Sync + 'static,
     ) -> Result<Option<R>, MavlinkConnectionError>
     where
         R: Send + Sync + 'static;
+
+    // Some == Still Monitoring
+    // None == Done Monitoring
+    fn monitor(
+        self: Arc<Self>,
+        timeout: Option<std::time::Duration>,
+        monitor: impl Fn(MavMessage) -> Option<()> + Send + Sync + 'static,
+    ) -> JoinHandle<Result<(), MavlinkConnectionError>>;
 
     fn target_system(&self) -> u8 {
         env!("MAV_TARGET_SYSTEM").parse().unwrap()
@@ -58,7 +66,7 @@ where
     #[tracing::instrument(skip(self, filter))]
     async fn send_wait<R>(
         self: Arc<Self>,
-        msg: MavMessage,
+        msg: &MavMessage,
         timeout: std::time::Duration,
         filter: impl Fn(MavMessage) -> FilterRes<R> + Send + Sync + 'static,
     ) -> Result<Option<R>, MavlinkConnectionError>
@@ -89,14 +97,45 @@ where
             }
         });
 
-        self.send(&msg)?;
+        self.send(msg)?;
 
         tracing::event!(tracing::Level::TRACE, "Message Sent");
 
         tokio::time::timeout(timeout, receiver)
             .await
-            .map_err(MavlinkConnectionError::Timeout)?
+            .map_err(|_| MavlinkConnectionError::Timeout)?
             .map_err(|e| MavlinkConnectionError::Other(e.to_string()))?
+    }
+
+    fn monitor(
+        self: Arc<Self>,
+        timeout: Option<std::time::Duration>,
+        monitor: impl Fn(MavMessage) -> Option<()> + Send + Sync + 'static,
+    ) -> JoinHandle<Result<(), MavlinkConnectionError>> {
+        let instant = std::time::Instant::now();
+        tokio::task::spawn(async move {
+            loop {
+                if let Some(t) = timeout {
+                    if instant.elapsed() > t {
+                        return Err(MavlinkConnectionError::Timeout);
+                    }
+                }
+
+                match tokio::task::spawn_blocking({
+                    let conn = self.clone();
+                    move || conn.recv()
+                })
+                .await
+                {
+                    Ok(Ok((header, msg))) => {
+                        if self.validate(header) && monitor(msg).is_none() {
+                            return Ok(());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        })
     }
 }
 
@@ -105,7 +144,10 @@ mod test {
     use std::sync::Arc;
 
     use super::{FilterRes, MavlinkConnection, MavlinkConnectionError};
-    use mavlink::{ardupilotmega::MavMessage, MavConnection};
+    use mavlink::{
+        ardupilotmega::{MavMessage, HEARTBEAT_DATA},
+        MavConnection,
+    };
 
     pub struct TestMavConnection {
         rx: tokio::sync::watch::Receiver<Option<MavMessage>>,
@@ -145,19 +187,34 @@ mod test {
             }
         }
     }
+
+    fn start_heartbeats(conn: Arc<Box<TestMavConnection>>) {
+        tokio::spawn({
+            let conn = conn.clone();
+            async move {
+                let mut int = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    int.tick().await;
+
+                    conn.send(&MavMessage::HEARTBEAT(Default::default()))
+                        .unwrap();
+                }
+            }
+        });
+    }
     #[tokio::test]
     async fn timeout() {
         let connection = Arc::new(Box::new(TestMavConnection::new()));
 
         let res = connection
             .send_wait::<()>(
-                MavMessage::MISSION_ITEM_INT(Default::default()),
+                &MavMessage::MISSION_ITEM_INT(Default::default()),
                 std::time::Duration::from_secs_f64(0.001),
                 |_| FilterRes::NotReady,
             )
             .await;
 
-        assert!(matches!(res, Err(MavlinkConnectionError::Timeout(_))));
+        assert!(matches!(res, Err(MavlinkConnectionError::Timeout)));
     }
 
     #[tokio::test]
@@ -166,7 +223,7 @@ mod test {
 
         let res = connection
             .send_wait(
-                MavMessage::MISSION_ITEM_INT(Default::default()),
+                &MavMessage::MISSION_ITEM_INT(Default::default()),
                 std::time::Duration::from_secs_f64(0.001),
                 |_| FilterRes::Ready(Some(1)),
             )
@@ -181,7 +238,7 @@ mod test {
 
         let res = connection
             .send_wait::<()>(
-                MavMessage::MISSION_ITEM_INT(Default::default()),
+                &MavMessage::MISSION_ITEM_INT(Default::default()),
                 std::time::Duration::from_secs_f64(0.001),
                 |_| FilterRes::Ready(None),
             )
@@ -194,23 +251,12 @@ mod test {
     async fn wait_for_msg() {
         let connection = Arc::new(Box::new(TestMavConnection::new()));
 
-        tokio::spawn({
-            let conn = connection.clone();
-            async move {
-                let mut int = tokio::time::interval(std::time::Duration::from_secs(1));
-                loop {
-                    int.tick().await;
-
-                    conn.send(&MavMessage::HEARTBEAT(Default::default()))
-                        .unwrap();
-                }
-            }
-        });
+        start_heartbeats(connection.clone());
 
         let res = connection
             .clone()
             .send_wait(
-                MavMessage::MISSION_ITEM_INT(Default::default()),
+                &MavMessage::MISSION_ITEM_INT(Default::default()),
                 std::time::Duration::from_secs(5),
                 |msg| {
                     if let MavMessage::HEARTBEAT(_) = msg {
@@ -223,5 +269,44 @@ mod test {
             .await;
 
         assert!(matches!(res, Ok(Some("finished"))))
+    }
+
+    #[tokio::test]
+    async fn monitor_timeout() {
+        let connection = Arc::new(Box::new(TestMavConnection::new()));
+
+        start_heartbeats(connection.clone());
+
+        let res = connection
+            .monitor(Some(std::time::Duration::from_secs_f64(0.001)), |_| Some(()))
+            .await
+            .unwrap();
+
+        assert!(matches!(res, Err(MavlinkConnectionError::Timeout)))
+    }
+
+    #[tokio::test]
+    async fn monitor_no_timeout() {
+        let connection = Arc::new(Box::new(TestMavConnection::new()));
+
+        start_heartbeats(connection.clone());
+
+        let (tx, mut rx) = tokio::sync::watch::channel(None);
+
+        connection.monitor(None, move |msg| {
+            if let MavMessage::HEARTBEAT(data) = msg {
+                tx.send(Some(data));
+                return None;
+            }
+            Some(())
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async move {
+            while rx.changed().await.is_ok() {
+                assert!(matches!(rx.borrow().clone(), Some(HEARTBEAT_DATA { .. })));
+            }
+        })
+        .await
+        .unwrap();
     }
 }
