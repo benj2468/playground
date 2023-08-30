@@ -3,13 +3,14 @@ use std::{fmt::Debug, sync::Arc};
 use mavlink::{
     ardupilotmega::MavMessage,
     error::{MessageReadError, MessageWriteError},
-    MavConnection, MavHeader,
+    MavConnection,
 };
 use tokio::task::JoinHandle;
 
 #[derive(Debug)]
 pub enum MavlinkConnectionError {
     Timeout,
+    // TODO(bjc) Remove this dependency
     ReadError(MessageReadError),
     WriteError(MessageWriteError),
     Other(String),
@@ -21,56 +22,17 @@ pub enum FilterRes<T> {
 }
 
 #[async_trait::async_trait]
-pub trait MavlinkConnection {
-    fn send(&self, msg: &MavMessage) -> Result<usize, MavlinkConnectionError>;
-    async fn send_wait<R>(
-        self: Arc<Self>,
-        msg: &MavMessage,
-        timeout: std::time::Duration,
-        filter: impl Fn(MavMessage) -> FilterRes<R> + Send + Sync + 'static,
-    ) -> Result<Option<R>, MavlinkConnectionError>
-    where
-        R: Send + Sync + 'static;
-
-    // Some == Still Monitoring
-    // None == Done Monitoring
-    fn monitor(
-        self: Arc<Self>,
-        timeout: Option<std::time::Duration>,
-        monitor: impl Fn(MavMessage) -> Option<()> + Send + Sync + 'static,
-    ) -> JoinHandle<Result<(), MavlinkConnectionError>>;
-
-    async fn _receive(self: Arc<Self>) -> Result<(MavHeader, MavMessage), MavlinkConnectionError>;
-
-    fn target_system(&self) -> u8 {
-        env!("MAV_TARGET_SYSTEM").parse().unwrap()
-    }
-    fn target_component(&self) -> u8 {
-        env!("MAV_TARGET_COMPONENT").parse().unwrap()
-    }
-
-    fn validate(&self, _header: MavHeader) -> bool {
-        true
-    }
-}
-
-#[async_trait::async_trait]
-impl<T> MavlinkConnection for Box<T>
+pub trait MavlinkConnection<Msg>: Send + Sync + 'static
 where
-    T: MavConnection<MavMessage> + Send + Sync + 'static,
+    Msg: Send + Sync,
 {
-    #[tracing::instrument(skip(self))]
-    fn send(&self, msg: &MavMessage) -> Result<usize, MavlinkConnectionError> {
-        MavConnection::send(self.as_ref(), &Default::default(), msg)
-            .map_err(MavlinkConnectionError::WriteError)
-    }
+    fn send(&self, msg: &Msg) -> Result<usize, MavlinkConnectionError>;
 
-    #[tracing::instrument(skip(self, filter))]
     async fn send_wait<R>(
         self: Arc<Self>,
-        msg: &MavMessage,
+        msg: &Msg,
         timeout: std::time::Duration,
-        filter: impl Fn(MavMessage) -> FilterRes<R> + Send + Sync + 'static,
+        filter: impl Fn(Msg) -> FilterRes<R> + Send + Sync + 'static,
     ) -> Result<Option<R>, MavlinkConnectionError>
     where
         R: Send + Sync + 'static,
@@ -96,10 +58,7 @@ where
     fn monitor(
         self: Arc<Self>,
         timeout: Option<std::time::Duration>,
-        // Currently when this returns None it implies that we are done
-        // And returning Some(()) means that we should continue monitoring
-        // I don't like this API, should at least change to maybe true/false to be more clear
-        monitor: impl Fn(MavMessage) -> Option<()> + Send + Sync + 'static,
+        monitor: impl Fn(Msg) -> Option<()> + Send + Sync + 'static,
     ) -> JoinHandle<Result<(), MavlinkConnectionError>> {
         let instant = std::time::Instant::now();
         tokio::task::spawn(async move {
@@ -110,8 +69,8 @@ where
                     }
                 }
 
-                if let Ok((header, msg)) = self.clone()._receive().await {
-                    if self.validate(header) && monitor(msg).is_none() {
+                if let Ok(msg) = self.clone()._receive().await {
+                    if monitor(msg).is_none() {
                         return Ok(());
                     }
                 }
@@ -119,19 +78,40 @@ where
         })
     }
 
+    async fn _receive(self: Arc<Self>) -> Result<Msg, MavlinkConnectionError>;
+
+    fn target_system(&self) -> u8 {
+        env!("MAV_TARGET_SYSTEM").parse().unwrap()
+    }
+    fn target_component(&self) -> u8 {
+        env!("MAV_TARGET_COMPONENT").parse().unwrap()
+    }
+}
+
+#[async_trait::async_trait]
+impl<T> MavlinkConnection<mavlink::ardupilotmega::MavMessage> for Box<T>
+where
+    T: MavConnection<MavMessage> + Send + Sync + 'static,
+{
+    #[tracing::instrument(skip(self))]
+    fn send(&self, msg: &MavMessage) -> Result<usize, MavlinkConnectionError> {
+        MavConnection::send(self.as_ref(), &Default::default(), msg)
+            .map_err(MavlinkConnectionError::WriteError)
+    }
     // This is in fact a blocking call -- since conn.recv() is blocking --
     // therefore, we cannot really "timeout" on receiving IFF there are NO messages coming through
     // If this function blocks forever, meaning there are no messages to return -- then there is nothing we can do...
     // BUT, since this is in a spawn_blocking, it will at least not hold up the execution of OTHER things
     //  (except things in it's consequent execution tree.
-    async fn _receive(self: Arc<Self>) -> Result<(MavHeader, MavMessage), MavlinkConnectionError> {
+    async fn _receive(self: Arc<Self>) -> Result<MavMessage, MavlinkConnectionError> {
         return tokio::task::spawn_blocking({
             let conn = self.clone();
             move || conn.recv()
         })
         .await
         .unwrap()
-        .map_err(MavlinkConnectionError::ReadError);
+        .map_err(MavlinkConnectionError::ReadError)
+        .map(|r| r.1);
     }
 }
 

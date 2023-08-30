@@ -14,7 +14,10 @@ pub struct Options {
 }
 
 #[async_trait::async_trait]
-pub trait MissionUpload {
+pub trait MissionUpload<Msg>
+where
+    Msg: Send + Sync,
+{
     // If successful, returns the number of mission items uploaded.
     // Otherwise, returns the error.
     async fn upload_mission<C>(
@@ -23,7 +26,7 @@ pub trait MissionUpload {
         options: Options,
     ) -> Result<u16, MissionUploadError>
     where
-        C: MavlinkConnection + Debug + Send + Sync;
+        C: MavlinkConnection<Msg> + Debug + Send + Sync;
 }
 
 pub enum MissionUploadError {
@@ -33,7 +36,7 @@ pub enum MissionUploadError {
 }
 
 #[async_trait::async_trait]
-impl MissionUpload for Vec<MISSION_ITEM_INT_DATA> {
+impl MissionUpload<mavlink::ardupilotmega::MavMessage> for Vec<MISSION_ITEM_INT_DATA> {
     #[instrument]
     async fn upload_mission<C>(
         self,
@@ -41,7 +44,7 @@ impl MissionUpload for Vec<MISSION_ITEM_INT_DATA> {
         options: Options,
     ) -> Result<u16, MissionUploadError>
     where
-        C: MavlinkConnection + Debug + Send + Sync,
+        C: MavlinkConnection<mavlink::ardupilotmega::MavMessage> + Debug + Send + Sync,
     {
         let count = self.len() as u16;
 

@@ -5,17 +5,20 @@ use mavlink::ardupilotmega;
 use crate::connection::{FilterRes, MavlinkConnection, MavlinkConnectionError};
 
 #[async_trait::async_trait]
-pub trait ChangeMode {
+pub trait ChangeMode<Msg>
+where
+    Msg: Send + Sync,
+{
     async fn change_mode<C>(self, connection: Arc<C>) -> Result<(), MavlinkConnectionError>
     where
-        C: MavlinkConnection + Send + Sync;
+        C: MavlinkConnection<Msg> + Send + Sync;
 }
 
 #[async_trait::async_trait]
-impl ChangeMode for ardupilotmega::PlaneMode {
+impl ChangeMode<mavlink::ardupilotmega::MavMessage> for ardupilotmega::PlaneMode {
     async fn change_mode<C>(self, connection: Arc<C>) -> Result<(), MavlinkConnectionError>
     where
-        C: MavlinkConnection + Send + Sync,
+        C: MavlinkConnection<mavlink::ardupilotmega::MavMessage> + Send + Sync,
     {
         connection
             .clone()
