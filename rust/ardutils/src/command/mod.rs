@@ -107,67 +107,55 @@ mod test {
     use crate::command::Command;
     use std::sync::Arc;
 
-    use mavlink::{
-        ardupilotmega::{
-            MavMessage, MavResult, COMMAND_ACK_DATA, COMMAND_INT_DATA, COMMAND_LONG_DATA,
-        },
-        MavConnection,
+    use mavlink::ardupilotmega::{
+        MavMessage, MavResult, COMMAND_ACK_DATA, COMMAND_INT_DATA, COMMAND_LONG_DATA,
     };
 
     use crate::connection::test::*;
 
     #[tokio::test]
     async fn command_int() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
-        COMMAND_INT_DATA {
-            param1: 3.14159,
-            ..Default::default()
-        }
-        .command(connection.clone());
+        start_heartbeats(connection.clone());
+
+        COMMAND_INT_DATA::default()
+            .command(connection.clone())
+            .unwrap();
 
         assert!(matches!(
-            connection.recv().unwrap().1,
-            MavMessage::COMMAND_INT(COMMAND_INT_DATA {
-                param1: 3.14159,
-                ..
-            })
+            connection.last_sent().unwrap(),
+            MavMessage::COMMAND_INT(COMMAND_INT_DATA { .. })
         ));
     }
 
     #[tokio::test]
     async fn command_long() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
-        COMMAND_LONG_DATA {
-            param1: 3.14159,
-            ..Default::default()
-        }
-        .command(connection.clone());
+        start_heartbeats(connection.clone());
+
+        COMMAND_LONG_DATA::default()
+            .command(connection.clone())
+            .unwrap();
 
         assert!(matches!(
-            connection.recv().unwrap().1,
-            MavMessage::COMMAND_LONG(COMMAND_LONG_DATA {
-                param1: 3.14159,
-                ..
-            })
+            connection.last_sent().unwrap(),
+            MavMessage::COMMAND_LONG(COMMAND_LONG_DATA { .. })
         ));
     }
 
     #[tokio::test]
     async fn monitor_int() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         let mut rx = COMMAND_INT_DATA::default()
             .command_monitor(connection.clone(), Some(std::time::Duration::from_secs(1)));
 
-        connection.send(
-            &Default::default(),
-            &MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
-                result: MavResult::MAV_RESULT_ACCEPTED,
-                ..Default::default()
-            }),
-        );
+        connection.inject_msg(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+            result: MavResult::MAV_RESULT_ACCEPTED,
+            ..Default::default()
+        }));
 
         tokio::time::timeout(std::time::Duration::from_secs(1), async move {
             while rx.changed().await.is_ok() {
@@ -180,23 +168,22 @@ mod test {
                     }
                 ));
             }
-        });
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn monitor_long() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         let mut rx = COMMAND_LONG_DATA::default()
             .command_monitor(connection.clone(), Some(std::time::Duration::from_secs(1)));
 
-        connection.send(
-            &Default::default(),
-            &MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
-                result: MavResult::MAV_RESULT_ACCEPTED,
-                ..Default::default()
-            }),
-        );
+        connection.inject_msg(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+            result: MavResult::MAV_RESULT_ACCEPTED,
+            ..Default::default()
+        }));
 
         tokio::time::timeout(std::time::Duration::from_secs(1), async move {
             while rx.changed().await.is_ok() {
@@ -209,22 +196,21 @@ mod test {
                     }
                 ));
             }
-        });
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn monitor_int_failed() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         let mut rx = COMMAND_INT_DATA::default().command_monitor(connection.clone(), None);
 
-        connection.send(
-            &Default::default(),
-            &MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
-                result: MavResult::MAV_RESULT_FAILED,
-                ..Default::default()
-            }),
-        );
+        connection.inject_msg(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+            result: MavResult::MAV_RESULT_FAILED,
+            ..Default::default()
+        }));
 
         tokio::time::timeout(std::time::Duration::from_secs(3), async move {
             while rx.changed().await.is_ok() {
@@ -246,17 +232,14 @@ mod test {
 
     #[tokio::test]
     async fn monitor_long_failed() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         let mut rx = COMMAND_LONG_DATA::default().command_monitor(connection.clone(), None);
 
-        connection.send(
-            &Default::default(),
-            &MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
-                result: MavResult::MAV_RESULT_FAILED,
-                ..Default::default()
-            }),
-        );
+        connection.inject_msg(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+            result: MavResult::MAV_RESULT_FAILED,
+            ..Default::default()
+        }));
 
         tokio::time::timeout(std::time::Duration::from_secs(3), async move {
             while rx.changed().await.is_ok() {
@@ -277,52 +260,43 @@ mod test {
 
     #[tokio::test]
     async fn monitor_long_progress() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         let mut rx = COMMAND_INT_DATA::default().command_monitor(connection.clone(), None);
 
-        connection.send(
-            &Default::default(),
-            &MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
-                result: MavResult::MAV_RESULT_IN_PROGRESS,
-                ..Default::default()
-            }),
-        );
+        connection.inject_msg(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+            result: MavResult::MAV_RESULT_IN_PROGRESS,
+            ..Default::default()
+        }));
 
         tokio::time::timeout(std::time::Duration::from_secs(3), async move {
-            while rx.changed().await.is_ok() {
-                assert!(matches!(
-                    rx.borrow().clone().unwrap(),
-                    COMMAND_ACK_DATA {
-                        result: MavResult::MAV_RESULT_IN_PROGRESS,
+            rx.changed().await.unwrap();
 
-                        ..
-                    }
-                ));
-                break;
-            }
+            assert!(matches!(
+                rx.borrow().clone().unwrap(),
+                COMMAND_ACK_DATA {
+                    result: MavResult::MAV_RESULT_IN_PROGRESS,
+
+                    ..
+                }
+            ));
             // This tells us that the transmitter is still open, and the watch is still happening.
             assert!(rx.has_changed().is_ok());
 
-            connection.send(
-                &Default::default(),
-                &MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+            connection.inject_msg(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+                result: MavResult::MAV_RESULT_ACCEPTED,
+                ..Default::default()
+            }));
+
+            rx.changed().await.unwrap();
+            assert!(matches!(
+                rx.borrow().clone().unwrap(),
+                COMMAND_ACK_DATA {
                     result: MavResult::MAV_RESULT_ACCEPTED,
-                    ..Default::default()
-                }),
-            );
 
-            while rx.changed().await.is_ok() {
-                assert!(matches!(
-                    rx.borrow().clone().unwrap(),
-                    COMMAND_ACK_DATA {
-                        result: MavResult::MAV_RESULT_ACCEPTED,
-
-                        ..
-                    }
-                ));
-                break;
-            }
+                    ..
+                }
+            ));
             // This tells us that the transmitter is has been dropped, and the watch is over.
             assert!(rx.has_changed().is_err());
         })

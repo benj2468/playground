@@ -77,9 +77,9 @@ where
     {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
-        let monitor = self.clone().monitor(Some(timeout), move |msg| {
+        self.clone().monitor(Some(timeout), move |msg| {
             if let FilterRes::Ready(inner) = filter(msg) {
-                tx.try_send(inner);
+                tx.try_send(inner).unwrap();
                 None
             } else {
                 Some(())
@@ -110,13 +110,10 @@ where
                     }
                 }
 
-                match self.clone()._receive().await {
-                    Ok((header, msg)) => {
-                        if self.validate(header) && monitor(msg).is_none() {
-                            return Ok(());
-                        }
+                if let Ok((header, msg)) = self.clone()._receive().await {
+                    if self.validate(header) && monitor(msg).is_none() {
+                        return Ok(());
                     }
-                    _ => {}
                 }
             }
         })
@@ -152,23 +149,25 @@ pub mod test {
         MavConnection,
     };
 
+    #[derive(Default)]
     pub struct TestMavConnection {
-        last_value: Arc<Mutex<Option<MavMessage>>>,
+        sent: Arc<Mutex<Option<MavMessage>>>,
         value: Arc<Mutex<Option<MavMessage>>>,
+    }
+
+    impl TestMavConnection {
+        pub fn inject_msg(&self, data: MavMessage) {
+            self.value.lock().unwrap().replace(data);
+        }
+
+        pub fn last_sent(&self) -> Option<MavMessage> {
+            self.sent.lock().unwrap().take()
+        }
     }
 
     impl Debug for TestMavConnection {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "TestMavConnection [{:?}]", self.value.lock().unwrap())
-        }
-    }
-
-    impl TestMavConnection {
-        pub fn new() -> Self {
-            Self {
-                value: Default::default(),
-                last_value: Default::default(),
-            }
         }
     }
 
@@ -182,7 +181,7 @@ pub mod test {
             _header: &mavlink::MavHeader,
             data: &MavMessage,
         ) -> Result<usize, mavlink::error::MessageWriteError> {
-            self.value.lock().unwrap().replace(data.clone());
+            self.sent.lock().unwrap().replace(data.clone());
             // TODO(bjc) this is not representative
             Ok(1)
         }
@@ -191,36 +190,29 @@ pub mod test {
             &self,
         ) -> Result<(mavlink::MavHeader, MavMessage), mavlink::error::MessageReadError> {
             loop {
-                if let Some(value) = self.value.lock().unwrap().as_mut() {
-                    let mut last_value = self.last_value.lock().unwrap();
-
-                    if last_value.as_ref().map(|i| i != value).unwrap_or(true) {
-                        last_value.replace(value.clone());
-                        return Ok((Default::default(), value.clone()));
-                    }
+                if let Some(value) = self.value.lock().unwrap().as_mut().take() {
+                    return Ok((Default::default(), value.clone()));
                 }
                 std::thread::sleep(std::time::Duration::from_secs_f64(0.01));
             }
         }
     }
 
-    fn start_heartbeats(conn: Arc<Box<TestMavConnection>>) {
+    pub fn start_heartbeats(conn: Arc<Box<TestMavConnection>>) {
         tokio::spawn({
-            let conn = conn.clone();
             async move {
                 let mut int = tokio::time::interval(std::time::Duration::from_secs(1));
                 loop {
                     int.tick().await;
 
-                    conn.send(&MavMessage::HEARTBEAT(Default::default()))
-                        .unwrap();
+                    conn.inject_msg(MavMessage::HEARTBEAT(Default::default()));
                 }
             }
         });
     }
     #[tokio::test]
     async fn timeout() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         start_heartbeats(connection.clone());
 
@@ -237,7 +229,9 @@ pub mod test {
 
     #[tokio::test]
     async fn valid() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
+
+        start_heartbeats(connection.clone());
 
         let res = connection
             .send_wait(
@@ -252,7 +246,9 @@ pub mod test {
 
     #[tokio::test]
     async fn invalid() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
+
+        start_heartbeats(connection.clone());
 
         let res = connection
             .send_wait::<()>(
@@ -267,7 +263,7 @@ pub mod test {
 
     #[tokio::test]
     async fn wait_for_msg() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         start_heartbeats(connection.clone());
 
@@ -291,7 +287,7 @@ pub mod test {
 
     #[tokio::test]
     async fn monitor_timeout() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         start_heartbeats(connection.clone());
 
@@ -308,7 +304,7 @@ pub mod test {
 
     #[tokio::test]
     async fn monitor_no_timeout() {
-        let connection = Arc::new(Box::new(TestMavConnection::new()));
+        let connection: Arc<Box<TestMavConnection>> = Default::default();
 
         start_heartbeats(connection.clone());
 
@@ -316,7 +312,7 @@ pub mod test {
 
         connection.monitor(None, move |msg| {
             if let MavMessage::HEARTBEAT(data) = msg {
-                tx.send(Some(data));
+                tx.send(Some(data)).unwrap();
                 return None;
             }
             Some(())
