@@ -1,0 +1,12 @@
+# Python
+.venv
+
+# IDE
+.vscode
+
+# Output files
+*.dot
+*.png
+*.svg
+
+
