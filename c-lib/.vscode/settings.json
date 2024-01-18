@@ -1,0 +1,8 @@
+{
+    "nixEnvSelector.nixFile": "${workspaceRoot}/default.nix",
+    "files.associations": {
+        "*.py0": "python",
+        "hellow.h": "c",
+        "stdio.h": "c"
+    }
+}
