@@ -3,8 +3,10 @@
 
 typedef struct _rust_context HellowContext;
 
-HellowContext* new_hellow();
+HellowContext *Hellow_new();
 
-void say_hi(HellowContext *ctx);
+int Hellow_set_name(HellowContext *ctx, const char *name);
+
+void Hellow_say_hi(HellowContext *ctx);
 
 #endif

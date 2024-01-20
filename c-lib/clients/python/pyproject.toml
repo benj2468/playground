@@ -1,0 +1,6 @@
+[project]
+name = "py_app"
+version = "0.1.0"
+
+[project.scripts]
+py-app = "py_app.cli:main"

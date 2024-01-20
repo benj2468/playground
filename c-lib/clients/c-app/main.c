@@ -2,11 +2,11 @@
 #include <stdio.h>
 #include "hellow.h"
 
-int main(void)
+int main(int argc, char *argv[])
 {
-    HellowContext *ctx = NULL;
+    HellowContext *ctx = Hellow_new();
 
-    ctx = new_hellow();
+    Hellow_set_name(ctx, argv[1]);
 
-    say_hi(ctx);
+    Hellow_say_hi(ctx);
 }

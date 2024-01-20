@@ -23,17 +23,18 @@
         };
 
         hellow-c = pkgs.callPackage ./clients/c-app { inherit hellow; };
+        hellow-py = pkgs.callPackage ./clients/python { inherit hellow; };
 
       in rec {
         # For `nix build` & `nix run`:
         packages = {
           default = hellow;
-          inherit hellow-c;
+          inherit hellow-c hellow-py;
         };
 
         # For `nix develop`:
         devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo ];
+          nativeBuildInputs = with pkgs; [ rustc cargo python3 ];
         };
       }
     );

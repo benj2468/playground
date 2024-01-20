@@ -3,6 +3,7 @@
     "files.associations": {
         "*.py0": "python",
         "hellow.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "stdlib.h": "c"
     }
 }
