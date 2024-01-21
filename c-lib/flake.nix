@@ -18,7 +18,7 @@
           src = ./hellow;
           copyLibs = true;
           postInstall = ''
-            cp -r $src/include $out
+            cp -r include $out
           '';
         };
 

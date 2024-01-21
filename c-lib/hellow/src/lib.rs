@@ -1,14 +1,7 @@
 use libc::c_char;
+use std::ffi::CStr;
 
-mod unsafe_work {
-    use std::ffi::CStr;
-
-    use libc::c_char;
-
-    pub unsafe fn extract_char_ptr(c: *const c_char) -> String {
-        CStr::from_ptr(c).to_owned().into_string().unwrap()
-    }
-}
+pub mod rs;
 
 #[derive(Default, Debug)]
 pub struct HellowContext {
@@ -17,24 +10,36 @@ pub struct HellowContext {
 
 #[no_mangle]
 pub extern "C" fn Hellow_new() -> Box<HellowContext> {
-    Default::default()
+    Box::new(HellowContext::new())
 }
 
+/// # Safety
+///
+/// `name` must be a null terminated string that has at most isize::MAX bytes
 #[no_mangle]
 pub unsafe extern "C" fn Hellow_set_name(ctx: *mut HellowContext, name: *const c_char) -> isize {
-    if ctx.is_null() {
-        eprintln!("Cannot set name for null context");
-        return -1;
-    }
+    let name = match CStr::from_ptr(name).to_owned().into_string() {
+        Err(e) => {
+            eprintln!("{e:?}");
+            return -1;
+        }
+        Ok(s) => s,
+    };
 
-    let name = unsafe_work::extract_char_ptr(name);
+    let ctx = match ctx.as_mut() {
+        None => {
+            eprintln!("Cannot set name for null context");
+            return -1;
+        }
+        Some(ctx) => ctx,
+    };
 
-    (*ctx).name = name;
+    ctx.name = name;
 
     0
 }
 
 #[no_mangle]
 pub extern "C" fn Hellow_say_hi(ctx: &HellowContext) {
-    println!("Hello {}", ctx.name);
+    ctx.say_hi()
 }

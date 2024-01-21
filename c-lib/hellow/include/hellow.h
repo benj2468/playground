@@ -1,12 +1,17 @@
-#ifndef HELLOW
-#define HELLOW
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-typedef struct _rust_context HellowContext;
+typedef struct HellowContext HellowContext;
 
-HellowContext *Hellow_new();
+struct HellowContext *Hellow_new(void);
 
-int Hellow_set_name(HellowContext *ctx, const char *name);
+/**
+ * # Safety
+ *
+ * `name` must be a null terminated string that has at most isize::MAX bytes
+ */
+intptr_t Hellow_set_name(struct HellowContext *ctx, const char *name);
 
-void Hellow_say_hi(HellowContext *ctx);
-
-#endif
+void Hellow_say_hi(const struct HellowContext *ctx);

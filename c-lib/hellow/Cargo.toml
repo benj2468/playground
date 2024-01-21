@@ -11,3 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 libc = "0.2.152"
+
+[build-dependencies]
+cbindgen = "0.26.0"
