@@ -9,7 +9,10 @@ pkgs.mkShell {
     cargo-generate
     llvmPackages.bintools
     python3
+    go
   ];
 
   RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+
+  inherit pkgs;
 }

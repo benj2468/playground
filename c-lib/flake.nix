@@ -24,6 +24,7 @@
         hellow-py = pkgs.callPackage ./python { inherit hellow; };
 
         c-app = pkgs.callPackage ./clients/c-app { inherit hellow; };
+        go-app = pkgs.callPackage ./clients/go-app { inherit hellow; };
         py-app = pkgs.callPackage ./clients/py-app { inherit hellow hellow-py; };
 
       in rec {
@@ -31,7 +32,7 @@
         packages = {
           default = hellow;
           inherit hellow-py;
-          inherit c-app py-app;
+          inherit c-app py-app go-app;
         };
 
         # For `nix develop`:

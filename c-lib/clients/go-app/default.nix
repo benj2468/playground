@@ -1,10 +1,13 @@
-{ pkgs, hellow, ...}: 
-pkgs.clangStdenv.mkDerivation rec {
-  name = "c-app";
+{ pkgs, hellow, ... }:
+pkgs.buildGoModule rec {
+  name = "goApp";
+  version = "0.1.0";
   src = ./.;
 
-  nativeBuildInputs = [ pkgs.cmake pkgs.makeWrapper ];
+  nativeBuildInputs = [ pkgs.makeWrapper ];
   buildInputs = [ hellow ];
+  vendorHash = null;
+
   postFixup = ''
     wrapProgram $out/bin/${name} \
       --set LD_LIBRARY_PATH ${hellow}/lib \
