@@ -6,7 +6,8 @@ pkgs.python3Packages.buildPythonPackage rec {
 
   nativeBuildInputs = [
     pkgs.makeWrapper
-  ] ++ (with pkgs.python3Packages; [ setuptools ]);
+    pkgs.python3Packages.setuptools
+  ];
   propagatedBuildInputs = [ hellow-py ];
 
   postFixup = ''

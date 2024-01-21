@@ -1,4 +1,9 @@
-use crate::HellowContext;
+pub mod ffi;
+
+#[derive(Default, Debug)]
+pub struct HellowContext {
+    name: String,
+}
 
 impl HellowContext {
     pub fn new() -> Self {
