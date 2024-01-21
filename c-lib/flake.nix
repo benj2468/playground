@@ -21,15 +21,17 @@
             cp -r include $out
           '';
         };
+        hellow-py = pkgs.callPackage ./python { inherit hellow; };
 
-        hellow-c = pkgs.callPackage ./clients/c-app { inherit hellow; };
-        hellow-py = pkgs.callPackage ./clients/python { inherit hellow; };
+        c-app = pkgs.callPackage ./clients/c-app { inherit hellow; };
+        py-app = pkgs.callPackage ./clients/py-app { inherit hellow hellow-py; };
 
       in rec {
         # For `nix build` & `nix run`:
         packages = {
           default = hellow;
-          inherit hellow-c hellow-py;
+          inherit hellow-py;
+          inherit c-app py-app;
         };
 
         # For `nix develop`:
