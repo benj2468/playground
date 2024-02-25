@@ -12,6 +12,6 @@ struct HellowContext *Hellow_new(void);
  *
  * `name` must be a null terminated string that has at most isize::MAX bytes
  */
-intptr_t Hellow_set_name(struct HellowContext *ctx, const char *name);
+intptr_t Hellow_set_prefix(struct HellowContext *ctx, const char *prefix);
 
-void Hellow_say_hi(const struct HellowContext *ctx);
+intptr_t Hellow_announce(const struct HellowContext *ctx, const char *name);

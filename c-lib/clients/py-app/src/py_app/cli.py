@@ -4,9 +4,13 @@ import sys
 def main() -> int:
     ctx = hellow.Hellow_new()
 
-    hellow.Hellow_set_name(ctx, sys.argv[1])
+    if len(sys.argv) > 1:
+        hellow.Hellow_set_prefix(ctx, sys.argv[1])
+    
+    for arg in sys.argv[2:]:
+        hellow.Hellow_announce(ctx, arg)
 
-    hellow.Hellow_say_hi(ctx)
+    
 
 if __name__ == "__main__":
     main()

@@ -10,8 +10,11 @@ pub extern "C" fn Hellow_new() -> Box<HellowContext> {
 ///
 /// `name` must be a null terminated string that has at most isize::MAX bytes
 #[no_mangle]
-pub unsafe extern "C" fn Hellow_set_name(ctx: *mut HellowContext, name: *const c_char) -> isize {
-    let name = try_parse_c_str!(name);
+pub unsafe extern "C" fn Hellow_set_prefix(
+    ctx: *mut HellowContext,
+    prefix: *const c_char,
+) -> isize {
+    let prefix = try_parse_c_str!(prefix);
 
     let ctx = match ctx.as_mut() {
         None => {
@@ -21,12 +24,16 @@ pub unsafe extern "C" fn Hellow_set_name(ctx: *mut HellowContext, name: *const c
         Some(ctx) => ctx,
     };
 
-    ctx.name = name;
+    ctx.prefix = prefix;
 
     0
 }
 
 #[no_mangle]
-pub extern "C" fn Hellow_say_hi(ctx: &HellowContext) {
-    ctx.say_hi()
+pub unsafe extern "C" fn Hellow_announce(ctx: &HellowContext, name: *const c_char) -> isize {
+    let name = try_parse_c_str!(name);
+
+    ctx.announce(name);
+
+    0
 }

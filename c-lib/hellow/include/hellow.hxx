@@ -18,9 +18,9 @@ Box<HellowContext> Hellow_new();
 /// # Safety
 ///
 /// `name` must be a null terminated string that has at most isize::MAX bytes
-intptr_t Hellow_set_name(HellowContext *ctx, const char *name);
+intptr_t Hellow_set_prefix(HellowContext *ctx, const char *prefix);
 
-void Hellow_say_hi(const HellowContext *ctx);
+intptr_t Hellow_announce(const HellowContext *ctx, const char *name);
 
 } // extern "C"
 
