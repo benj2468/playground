@@ -1,24 +1,21 @@
-use adk_derive::{c_result_fn, CDebug};
+use adk_derive::{c_result_fn, CConstructor, CDebug};
 
 use crate::utils;
 
 use super::entity::Entity;
 
-#[derive(Debug, Default, CDebug)]
+/// Scenario structure
+#[derive(Debug, Default, Clone, CDebug, CConstructor)]
 pub struct Scenario {
     entities: Vec<Entity>,
 }
 
-#[no_mangle]
-pub extern "C" fn scenario_new() -> *mut Scenario {
-    Box::into_raw(Box::new(Scenario::default()))
-}
-
+/// Add an Entity to the Scenario
+/// 
+/// This will overwrite the old value
 #[c_result_fn]
 fn scenario_with_entity(sim: *mut Scenario, entity: &Entity) -> utils::CResult {
-    let sim = utils::check_null(sim)?;
-
-    sim.entities.push(entity.clone());
+    utils::check_null(sim)?.entities.push(entity.clone());
 
     Ok(())
 }

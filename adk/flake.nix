@@ -13,7 +13,7 @@
           inherit system;
         };
 
-        toolchain = (fenix.packages.${system}.toolchainOf { 
+        toolchain = (fenix.packages.${system}.toolchainOf {
           sha256 = "sha256-Mdut7K2csauBB9NL/fiEEXz+TjNHDrNc4MVhCnpm72c=";
         }).toolchain;
 
@@ -39,9 +39,10 @@
         adk-py = pkgs.python3Packages.callPackage ./adk/python { inherit adk; };
 
         c-app = pkgs.callPackage ./tests/c-app { inherit adk; };
-        py-app = pkgs.python3Packages.callPackage ./tests/py-app { inherit adk-py adk; };
+        py-app = pkgs.python3Packages.callPackage ./tests/py-app { inherit adk-py; };
 
-      in rec {
+      in
+      rec {
         # For `nix build` & `nix run`:
         packages = {
           default = adk;
@@ -50,7 +51,9 @@
         };
 
         # For `nix develop`:
-        devShell = adk;
+        devShell = pkgs.mkShell {
+          buildInputs = [ adk adk-py ];
+        };
       }
     );
 }

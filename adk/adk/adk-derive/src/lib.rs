@@ -10,10 +10,38 @@ pub fn derive_c_debug(item: TokenStream) -> TokenStream {
     let fn_name = &format!("{}_debug", struct_ident.to_string().to_case(Case::Snake));
     let fn_ident = syn::Ident::new(fn_name, struct_ident.span());
 
+    let args = input.attrs;
     quote::quote!(
+        #(#args)*
         #[no_mangle]
         pub extern "C" fn #fn_ident(s: &#struct_ident) {
             println!("{:?}", s);
+        }
+    )
+    .into()
+}
+
+#[proc_macro_derive(CConstructor)]
+pub fn derive_c_new(item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as DeriveInput);
+    let struct_ident = input.ident;
+
+    
+    let new_ident = syn::Ident::new(&format!("{}_new", struct_ident.to_string().to_case(Case::Snake)), struct_ident.span());
+    let clone_ident = syn::Ident::new(&format!("{}_clone", struct_ident.to_string().to_case(Case::Snake)), struct_ident.span());
+
+    let args = input.attrs;
+    quote::quote!(
+        #(#args)*
+        #[no_mangle]
+        pub extern "C" fn #new_ident() -> *mut #struct_ident {
+            Box::into_raw(Box::default())
+        }
+
+        #(#args)*
+        #[no_mangle]
+        pub extern "C" fn #clone_ident(s: &#struct_ident) -> *mut #struct_ident {
+            Box::into_raw(Box::new(s.clone()))
         }
     )
     .into()
@@ -25,7 +53,7 @@ pub fn c_result_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let function_name = input.sig.ident.clone();
 
     let mut inner = input.clone();
-    let inner_ident = Ident::new(&format!("_inner_{}", function_name), function_name.span());
+    let inner_ident = Ident::new(&format!("_inner_{function_name}"), function_name.span());
     inner.sig.ident = inner_ident.clone();
 
     let mut new_signature = input.sig.clone();
@@ -41,15 +69,17 @@ pub fn c_result_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
             syn::FnArg::Typed(typed) => &typed.pat,
         });
 
+    let args = input.attrs;
     quote::quote!(
         #inner
 
+        #(#args)*
         #[no_mangle]
         pub #new_signature {
             match #inner_ident(#(#inputs),*) {
                 Ok(_) => 0,
                 Err(e) => {
-                    eprintln!("{e:?}");
+                    eprintln!("{:?}", e);
                     1
                 }
             }

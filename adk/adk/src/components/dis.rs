@@ -1,7 +1,5 @@
-use adk_derive::CDebug;
+use adk_derive::{CConstructor, CDebug};
 
-
-#[derive(Debug, Default, Clone, CDebug)]
-pub struct DisConfig {
-    foo: String,
-}
+/// DIS Config structure
+#[derive(Debug, Default, Clone, CDebug, CConstructor)]
+pub struct DisConfig {}

@@ -1,4 +1,4 @@
-{ buildPythonPackage, setuptools, adk-py, adk, ... }:
+{ buildPythonPackage, setuptools, adk-py, ... }:
 buildPythonPackage rec {
   name = "py-app";
   src = ./.;
