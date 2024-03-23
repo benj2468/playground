@@ -18,7 +18,8 @@
           src = ./hellow;
           copyLibs = true;
           postInstall = ''
-            cp -r include $out
+            mkdir $out/include
+            cbindgen --config cbindgen.toml --crate adk --output $out/include/adk.h
           '';
         };
         hellow-py = pkgs.callPackage ./python { inherit hellow; };

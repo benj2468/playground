@@ -1,0 +1,18 @@
+[package]
+name = "adk"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+paste = "1.0.14"
+adk-derive = { path = "adk-derive" }
+libc = "0.2.153"
+
+
+[workspace]
+members = ["adk-derive"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
